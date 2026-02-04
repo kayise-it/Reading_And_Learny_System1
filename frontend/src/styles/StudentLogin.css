@@ -1,0 +1,30 @@
+/* src/styles/StudentLogin.css */
+
+.auth-container {
+    width: 300px;
+    margin: 100px auto;
+    padding: 20px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    text-align: center;
+}
+
+.login-title {
+    color: #333;
+}
+
+.login-input {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.login-button {
+    background-color: #5cb85c;
+    color: white;
+    padding: 10px 15px;
+}

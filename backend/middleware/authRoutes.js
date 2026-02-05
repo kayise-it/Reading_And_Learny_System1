@@ -10,7 +10,6 @@ const router = express.Router();
  * REGISTER
  * name, email, password, role (optional)
  */
-// middleware/authRoutes.js - Update registration route
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
@@ -226,7 +225,101 @@ router.get("/profile", async (req, res) => {
   }
 });
 
-// Check if email exists
+/**
+ * CHANGE PASSWORD
+ * Requires token in header
+ */
+router.post('/change-password', async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Current password and new password are required" 
+      });
+    }
+    
+    if (newPassword.length < 6) {
+      return res.status(400).json({ 
+        success: false,
+        message: "New password must be at least 6 characters" 
+      });
+    }
+    
+    // Get token from header
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+      return res.status(401).json({ 
+        success: false,
+        message: "No token provided" 
+      });
+    }
+    
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // Find user
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: "User not found" 
+      });
+    }
+    
+    // Verify current password
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Current password is incorrect" 
+      });
+    }
+    
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    // Update password
+    user.password = hashedPassword;
+    await user.save();
+    
+    console.log(`✅ Password changed for user: ${user.email}`);
+    
+    res.json({ 
+      success: true,
+      message: "Password changed successfully" 
+    });
+  } catch (err) {
+    console.error("Change password error:", err);
+    
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ 
+        success: false,
+        message: "Invalid token" 
+      });
+    }
+    
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ 
+        success: false,
+        message: "Token expired" 
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: err.message 
+    });
+  }
+});
+
+/**
+ * CHECK IF EMAIL EXISTS
+ */
 router.post("/check-email", async (req, res) => {
   try {
     const { email } = req.body;

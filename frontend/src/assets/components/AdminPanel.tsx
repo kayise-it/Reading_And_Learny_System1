@@ -1,4 +1,4 @@
-// Complete AdminPanel.tsx with sidebar
+// Complete AdminPanel.tsx with sidebar, password change, notes view, quiz edit, preview, and working manual review
 import React, { useEffect, useState } from "react";
 import "../../styles/AdminPanel.css";
 
@@ -144,6 +144,25 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
     totalUsers: 0
   });
 
+  // Password change state
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: ""
+  });
+
+  // New states for viewing notes, editing quizzes, and preview
+  const [viewingNotes, setViewingNotes] = useState<Content | null>(null);
+  const [editingQuiz, setEditingQuiz] = useState<Content | null>(null);
+  const [previewContent, setPreviewContent] = useState<Content | null>(null);
+  const [editQuizForm, setEditQuizForm] = useState<QuizFormData | null>(null);
+
+  // Manual review states
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState("");
+  const [reviewSuccess, setReviewSuccess] = useState("");
+
   useEffect(() => {
     loadData();
   }, [activeTab]);
@@ -239,19 +258,25 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
     setLoading(true);
 
     try {
-      const res = await fetch("http://localhost:4000/api/content", {
-        method: "POST",
+      const endpoint = editingQuiz 
+        ? `http://localhost:4000/api/admin/content/${editingQuiz._id}`
+        : "http://localhost:4000/api/content";
+      
+      const method = editingQuiz ? "PUT" : "POST";
+      
+      const res = await fetch(endpoint, {
+        method: method,
         headers: {
           "Content-Type": "application/json",
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(quizForm),
+        body: JSON.stringify(editingQuiz ? editQuizForm : quizForm),
       });
 
       const data = await res.json();
       
       if (res.ok && data.success) {
-        setContentSuccess("✅ Quiz created successfully!");
+        setContentSuccess(editingQuiz ? "✅ Quiz updated successfully!" : "✅ Quiz created successfully!");
         // Reset form
         setQuizForm({
           grade: "Grade 4",
@@ -262,10 +287,12 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
           questions: [{ question: "", options: ["", "", "", ""], answer: "" }]
         });
         setShowQuizForm(false);
+        setEditingQuiz(null);
+        setEditQuizForm(null);
         // Refresh content list
         loadData();
       } else {
-        setContentError(data.error || data.message || "Failed to create quiz");
+        setContentError(data.error || data.message || `Failed to ${editingQuiz ? 'update' : 'create'} quiz`);
       }
     } catch (error) {
       setContentError("Network error. Please try again.");
@@ -330,26 +357,153 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
     }
   };
 
+  const handlePasswordChange = async () => {
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      alert("New passwords don't match!");
+      return;
+    }
+
+    if (passwordData.newPassword.length < 6) {
+      alert("Password must be at least 6 characters!");
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch("http://localhost:4000/api/auth/change-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          currentPassword: passwordData.currentPassword,
+          newPassword: passwordData.newPassword
+        })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        alert("✅ Password changed successfully!");
+        setShowChangePassword(false);
+        setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      } else {
+        alert(`❌ ${data.message || "Failed to change password"}`);
+      }
+    } catch (error) {
+      console.error("Error changing password:", error);
+      alert("⚠️ Error changing password. Please try again.");
+    }
+  };
+
+  // MANUAL REVIEW FUNCTIONALITY
+  const handleManualReview = async () => {
+    if (!reviewingSubmission) return;
+    
+    setReviewError("");
+    setReviewSuccess("");
+    
+    // Validate score
+    if (manualScore < 0 || manualScore > reviewingSubmission.total) {
+      setReviewError(`Score must be between 0 and ${reviewingSubmission.total}`);
+      return;
+    }
+    
+    setReviewLoading(true);
+    
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:4000/api/submissions/${reviewingSubmission._id}/review`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          score: manualScore,
+          feedback: feedback,
+          isManuallyReviewed: true
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        setReviewSuccess("✅ Manual review submitted successfully!");
+        
+        // Update local state
+        const updatedSubmissions = submissions.map(sub => 
+          sub._id === reviewingSubmission._id 
+            ? { 
+                ...sub, 
+                score: manualScore, 
+                adminFeedback: feedback,
+                isManuallyReviewed: true 
+              }
+            : sub
+        );
+        setSubmissions(updatedSubmissions);
+        
+        // Close modal after 1.5 seconds
+        setTimeout(() => {
+          setReviewingSubmission(null);
+          setManualScore(0);
+          setFeedback("");
+          setReviewSuccess("");
+        }, 1500);
+      } else {
+        setReviewError(data.message || "Failed to submit manual review");
+      }
+    } catch (error) {
+      console.error("Manual review error:", error);
+      setReviewError("Network error. Please try again.");
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
   // Helper functions for quiz form
   const addQuizQuestion = () => {
-    setQuizForm({
-      ...quizForm,
-      questions: [...quizForm.questions, { question: "", options: ["", "", "", ""], answer: "" }]
-    });
+    if (editingQuiz && editQuizForm) {
+      setEditQuizForm({
+        ...editQuizForm,
+        questions: [...editQuizForm.questions, { question: "", options: ["", "", "", ""], answer: "" }]
+      });
+    } else {
+      setQuizForm({
+        ...quizForm,
+        questions: [...quizForm.questions, { question: "", options: ["", "", "", ""], answer: "" }]
+      });
+    }
   };
 
   const removeQuizQuestion = (index: number) => {
-    if (quizForm.questions.length > 1) {
-      const newQuestions = [...quizForm.questions];
-      newQuestions.splice(index, 1);
-      setQuizForm({ ...quizForm, questions: newQuestions });
+    if (editingQuiz && editQuizForm) {
+      if (editQuizForm.questions.length > 1) {
+        const newQuestions = [...editQuizForm.questions];
+        newQuestions.splice(index, 1);
+        setEditQuizForm({ ...editQuizForm, questions: newQuestions });
+      }
+    } else {
+      if (quizForm.questions.length > 1) {
+        const newQuestions = [...quizForm.questions];
+        newQuestions.splice(index, 1);
+        setQuizForm({ ...quizForm, questions: newQuestions });
+      }
     }
   };
 
   const updateQuizQuestion = (index: number, field: string, value: string | string[]) => {
-    const newQuestions = [...quizForm.questions];
-    newQuestions[index] = { ...newQuestions[index], [field]: value };
-    setQuizForm({ ...quizForm, questions: newQuestions });
+    if (editingQuiz && editQuizForm) {
+      const newQuestions = [...editQuizForm.questions];
+      newQuestions[index] = { ...newQuestions[index], [field]: value };
+      setEditQuizForm({ ...editQuizForm, questions: newQuestions });
+    } else {
+      const newQuestions = [...quizForm.questions];
+      newQuestions[index] = { ...newQuestions[index], [field]: value };
+      setQuizForm({ ...quizForm, questions: newQuestions });
+    }
   };
 
   // Helper functions for notes form
@@ -392,21 +546,21 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
       });
 
       if (res.ok) {
-        alert("Attempts reset successfully");
+        alert("✅ Attempts reset successfully!");
         loadData();
       } else {
         const error = await res.json();
-        alert(`Error: ${error.message}`);
+        alert(`❌ Error: ${error.message}`);
       }
     } catch (error) {
       console.error("Reset attempts error:", error);
-      alert("Failed to reset attempts");
+      alert("❌ Failed to reset attempts");
     }
   };
 
   const deleteUser = async (userId: string) => {
     if (!userId) {
-      alert("Error: Invalid user ID");
+      alert("❌ Error: Invalid user ID");
       return;
     }
     if (!window.confirm("Are you sure you want to delete this user? This will delete all their submissions.")) return;
@@ -461,6 +615,24 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
       console.error("Delete content error:", error);
       alert("❌ Network error. Please try again.");
     }
+  };
+
+  // Edit quiz function
+  const handleEditQuiz = (quiz: Content) => {
+    setEditingQuiz(quiz);
+    setEditQuizForm({
+      grade: quiz.grade,
+      subject: quiz.subject,
+      mainTopic: quiz.mainTopic,
+      description: quiz.description,
+      contentType: 'quiz',
+      questions: quiz.questions.map(q => ({
+        question: q.question,
+        options: q.options,
+        answer: q.answer
+      }))
+    });
+    setShowQuizForm(true);
   };
 
   // Filter content by type
@@ -561,6 +733,13 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
           </div>
           
           <div className="header-right">
+            <button 
+              className="change-password-btn" 
+              onClick={() => setShowChangePassword(true)}
+              title="Change Password"
+            >
+              🔐
+            </button>
             <div className="admin-avatar">
               {user.name.charAt(0).toUpperCase()}
             </div>
@@ -691,7 +870,11 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                 <div className="creation-buttons">
                   <button 
                     className="btn btn-primary"
-                    onClick={() => setShowQuizForm(true)}
+                    onClick={() => {
+                      setShowQuizForm(true);
+                      setEditingQuiz(null);
+                      setEditQuizForm(null);
+                    }}
                   >
                     <span>📝</span>
                     <span>Create New Quiz</span>
@@ -788,8 +971,25 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                       </div>
                       
                       <div className="content-card-footer">
-                        <button className="btn-outline">Edit</button>
-                        <button className="btn-outline">Preview</button>
+                        {item.contentType === 'quiz' ? (
+                          <>
+                            <button className="btn-outline" onClick={() => handleEditQuiz(item)}>
+                              Edit Quiz
+                            </button>
+                            <button className="btn-outline" onClick={() => setPreviewContent(item)}>
+                              Preview
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button className="btn-outline" onClick={() => setViewingNotes(item)}>
+                              View Notes
+                            </button>
+                            <button className="btn-outline" onClick={() => setPreviewContent(item)}>
+                              Preview
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   ))
@@ -878,7 +1078,7 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                 <div className="empty-state">
                   <div className="empty-state-icon">👥</div>
                   <h3>No users found</h3>
-                  <p>Users will appear here once registered.</p>
+                    <p>Users will appear here once registered.</p>
                 </div>
               ) : (
                 <div className="users-table-container">
@@ -954,12 +1154,16 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
       </main>
 
       {/* Quiz Form Modal */}
-      {showQuizForm && (
+      {(showQuizForm || editingQuiz) && (
         <div className="modal-overlay">
           <div className="modal">
             <div className="modal-header">
-              <h3>📝 Create New Quiz</h3>
-              <button className="close-btn" onClick={() => setShowQuizForm(false)}>✕</button>
+              <h3>{editingQuiz ? '📝 Edit Quiz' : '📝 Create New Quiz'}</h3>
+              <button className="close-btn" onClick={() => {
+                setShowQuizForm(false);
+                setEditingQuiz(null);
+                setEditQuizForm(null);
+              }}>✕</button>
             </div>
             
             <div className="modal-body">
@@ -969,8 +1173,14 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                     <label>Grade Level *</label>
                     <select
                       className="form-control"
-                      value={quizForm.grade}
-                      onChange={(e) => setQuizForm({...quizForm, grade: e.target.value})}
+                      value={editingQuiz ? editQuizForm?.grade || "Grade 4" : quizForm.grade}
+                      onChange={(e) => {
+                        if (editingQuiz && editQuizForm) {
+                          setEditQuizForm({...editQuizForm, grade: e.target.value});
+                        } else {
+                          setQuizForm({...quizForm, grade: e.target.value});
+                        }
+                      }}
                       required
                     >
                       <option value="Grade 4">Grade 4</option>
@@ -987,8 +1197,14 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                     <label>Subject *</label>
                     <select
                       className="form-control"
-                      value={quizForm.subject}
-                      onChange={(e) => setQuizForm({...quizForm, subject: e.target.value})}
+                      value={editingQuiz ? editQuizForm?.subject || "English" : quizForm.subject}
+                      onChange={(e) => {
+                        if (editingQuiz && editQuizForm) {
+                          setEditQuizForm({...editQuizForm, subject: e.target.value});
+                        } else {
+                          setQuizForm({...quizForm, subject: e.target.value});
+                        }
+                      }}
                       required
                     >
                       <option value="English">English</option>
@@ -997,6 +1213,8 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                       <option value="History">History</option>
                       <option value="Geography">Geography</option>
                       <option value="Art">Art</option>
+                      <option value="Life Skills">Life Skills</option>
+                      <option value="Life Orientation">Life Orientation</option>
                     </select>
                   </div>
                 </div>
@@ -1006,8 +1224,14 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                   <input
                     className="form-control"
                     type="text"
-                    value={quizForm.mainTopic}
-                    onChange={(e) => setQuizForm({...quizForm, mainTopic: e.target.value})}
+                    value={editingQuiz ? editQuizForm?.mainTopic || "" : quizForm.mainTopic}
+                    onChange={(e) => {
+                      if (editingQuiz && editQuizForm) {
+                        setEditQuizForm({...editQuizForm, mainTopic: e.target.value});
+                      } else {
+                        setQuizForm({...quizForm, mainTopic: e.target.value});
+                      }
+                    }}
                     placeholder="e.g., Multiplication Quiz, Grammar Test"
                     required
                   />
@@ -1017,8 +1241,14 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                   <label>Description *</label>
                   <textarea
                     className="form-control textarea-control"
-                    value={quizForm.description}
-                    onChange={(e) => setQuizForm({...quizForm, description: e.target.value})}
+                    value={editingQuiz ? editQuizForm?.description || "" : quizForm.description}
+                    onChange={(e) => {
+                      if (editingQuiz && editQuizForm) {
+                        setEditQuizForm({...editQuizForm, description: e.target.value});
+                      } else {
+                        setQuizForm({...quizForm, description: e.target.value});
+                      }
+                    }}
                     placeholder="Brief description of what this quiz covers"
                     rows={3}
                     required
@@ -1027,17 +1257,19 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                 
                 {/* Questions Section */}
                 <div className="section-header">
-                  <h4>Quiz Questions <span className="section-badge">{quizForm.questions.length}</span></h4>
+                  <h4>Quiz Questions <span className="section-badge">
+                    {editingQuiz ? editQuizForm?.questions.length || 0 : quizForm.questions.length}
+                  </span></h4>
                   <button type="button" className="btn-secondary" onClick={addQuizQuestion}>
                     + Add Question
                   </button>
                 </div>
                 
-                {quizForm.questions.map((q, qIndex) => (
+                {(editingQuiz ? editQuizForm?.questions || [] : quizForm.questions).map((q, qIndex) => (
                   <div key={qIndex} className="question-card">
                     <div className="question-header">
                       <h5>Question {qIndex + 1}</h5>
-                      {quizForm.questions.length > 1 && (
+                      {(editingQuiz ? editQuizForm?.questions.length || 0 : quizForm.questions.length) > 1 && (
                         <button 
                           type="button" 
                           className="btn-danger"
@@ -1092,11 +1324,15 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                 ))}
                 
                 <div className="modal-actions">
-                  <button type="button" className="btn-secondary" onClick={() => setShowQuizForm(false)}>
+                  <button type="button" className="btn-secondary" onClick={() => {
+                    setShowQuizForm(false);
+                    setEditingQuiz(null);
+                    setEditQuizForm(null);
+                  }}>
                     Cancel
                   </button>
                   <button type="submit" className="btn btn-primary" disabled={loading}>
-                    {loading ? "Creating..." : "Create Quiz"}
+                    {loading ? (editingQuiz ? "Updating..." : "Creating...") : (editingQuiz ? "Update Quiz" : "Create Quiz")}
                   </button>
                 </div>
               </form>
@@ -1149,6 +1385,8 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                       <option value="History">History</option>
                       <option value="Geography">Geography</option>
                       <option value="Art">Art</option>
+                      <option value="Life Skills">Life Skills</option>
+                      <option value="Life Orientation">Life Orientation</option>
                     </select>
                   </div>
                 </div>
@@ -1284,6 +1522,253 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
         </div>
       )}
 
+      {/* View Notes Modal */}
+      {viewingNotes && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-header">
+              <h3>
+                <span>📚</span>
+                {viewingNotes.mainTopic} - Learning Notes
+              </h3>
+              <button className="close-btn" onClick={() => setViewingNotes(null)}>✕</button>
+            </div>
+            
+            <div className="modal-body">
+              <div className="notes-view">
+                <div className="notes-header">
+                  <h4>{viewingNotes.mainTopic}</h4>
+                  <p className="notes-description">{viewingNotes.description}</p>
+                  <div className="notes-meta">
+                    <span>Grade: {viewingNotes.grade}</span>
+                    <span>Subject: {viewingNotes.subject}</span>
+                    <span>Created: {new Date(viewingNotes.createdAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                
+                {viewingNotes.definitions && viewingNotes.definitions.length > 0 && (
+                  <div className="notes-section">
+                    <h5>📖 Key Terms & Definitions</h5>
+                    <div className="definitions-list">
+                      {viewingNotes.definitions.map((def, index) => (
+                        <div key={index} className="definition-item">
+                          <strong>{def.word}:</strong> {def.meaning}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {viewingNotes.subTopics && viewingNotes.subTopics.length > 0 && (
+                  <div className="notes-section">
+                    <h5>📚 Learning Subtopics</h5>
+                    <div className="subtopics-list">
+                      {viewingNotes.subTopics.map((sub, index) => (
+                        <div key={index} className="subtopic-item">
+                          <h6>{sub.title}</h6>
+                          <p>{sub.content}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="modal-actions">
+                  <button className="btn-primary" onClick={() => setViewingNotes(null)}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Content Modal */}
+      {previewContent && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-header">
+              <h3>
+                <span>👁️</span>
+                Preview: {previewContent.mainTopic}
+              </h3>
+              <button className="close-btn" onClick={() => setPreviewContent(null)}>✕</button>
+            </div>
+            
+            <div className="modal-body">
+              <div className="preview-content">
+                <div className="preview-header">
+                  <h4>{previewContent.mainTopic}</h4>
+                  <p className="preview-description">{previewContent.description}</p>
+                  <div className="preview-meta">
+                    <span className="content-type-badge preview-badge">
+                      {previewContent.contentType === 'quiz' ? '📝 Quiz' : '📚 Learning Notes'}
+                    </span>
+                    <span>Grade: {previewContent.grade}</span>
+                    <span>Subject: {previewContent.subject}</span>
+                  </div>
+                </div>
+                
+                {previewContent.contentType === 'quiz' ? (
+                  <div className="quiz-preview">
+                    <h5>📝 Quiz Questions ({previewContent.questions?.length || 0})</h5>
+                    {previewContent.questions?.map((q, index) => (
+                      <div key={index} className="preview-question">
+                        <p><strong>Q{index + 1}:</strong> {q.question}</p>
+                        <div className="preview-options">
+                          {q.options.map((option, optIndex) => (
+                            <div key={optIndex} className={`preview-option ${option === q.answer ? 'correct-option' : ''}`}>
+                              {option} {option === q.answer && '✅'}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="notes-preview">
+                    {previewContent.definitions && previewContent.definitions.length > 0 && (
+                      <div className="preview-section">
+                        <h5>📖 Key Terms ({previewContent.definitions.length})</h5>
+                        <ul>
+                          {previewContent.definitions.map((def, index) => (
+                            <li key={index}><strong>{def.word}:</strong> {def.meaning}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    {previewContent.subTopics && previewContent.subTopics.length > 0 && (
+                      <div className="preview-section">
+                        <h5>📚 Subtopics ({previewContent.subTopics.length})</h5>
+                        {previewContent.subTopics.map((sub, index) => (
+                          <div key={index} className="preview-subtopic">
+                            <h6>{sub.title}</h6>
+                            <p>{sub.content}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                <div className="modal-actions">
+                  <button className="btn-primary" onClick={() => setPreviewContent(null)}>
+                    Close Preview
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Change Password Modal */}
+      {showChangePassword && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-header">
+              <h3>
+                <span>🔐</span>
+                Change Your Password
+              </h3>
+              <button className="close-btn" onClick={() => {
+                setShowChangePassword(false);
+                setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" });
+              }}>✕</button>
+            </div>
+            
+            <div className="modal-body">
+              <div className="password-change-form">
+                <div className="form-group">
+                  <label>Current Password *</label>
+                  <input
+                    className="form-control"
+                    type="password"
+                    value={passwordData.currentPassword}
+                    onChange={(e) => setPasswordData({...passwordData, currentPassword: e.target.value})}
+                    placeholder="Enter your current password"
+                    required
+                    autoComplete="current-password"
+                  />
+                </div>
+                
+                <div className="form-group">
+                  <label>New Password *</label>
+                  <input
+                    className="form-control"
+                    type="password"
+                    value={passwordData.newPassword}
+                    onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
+                    placeholder="Enter new password (min 6 characters)"
+                    required
+                    autoComplete="new-password"
+                  />
+                  <small className="password-hint">Must be at least 6 characters</small>
+                </div>
+                
+                <div className="form-group">
+                  <label>Confirm New Password *</label>
+                  <input
+                    className="form-control"
+                    type="password"
+                    value={passwordData.confirmPassword}
+                    onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
+                    placeholder="Confirm your new password"
+                    required
+                    autoComplete="new-password"
+                  />
+                </div>
+                
+                <div className="password-strength">
+                  {passwordData.newPassword && (
+                    <>
+                      <div className="strength-meter">
+                        <div 
+                          className="strength-bar"
+                          style={{
+                            width: passwordData.newPassword.length >= 8 ? '100%' : 
+                                   passwordData.newPassword.length >= 6 ? '66%' : '33%',
+                            backgroundColor: passwordData.newPassword.length >= 8 ? '#10b981' : 
+                                             passwordData.newPassword.length >= 6 ? '#f59e0b' : '#ef4444'
+                          }}
+                        ></div>
+                      </div>
+                      <div className="strength-text">
+                        {passwordData.newPassword.length >= 8 ? 'Strong password ✓' : 
+                         passwordData.newPassword.length >= 6 ? 'Medium strength' : 'Weak password'}
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                <div className="modal-actions">
+                  <button 
+                    type="button" 
+                    className="btn-secondary" 
+                    onClick={() => {
+                      setShowChangePassword(false);
+                      setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" });
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="button" 
+                    className="btn btn-primary"
+                    onClick={handlePasswordChange}
+                    disabled={!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword}
+                  >
+                    Change Password
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Submission Details Modal */}
       {selectedSubmission && (
         <div className="modal-overlay">
@@ -1336,22 +1821,63 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
         <div className="modal-overlay">
           <div className="modal">
             <div className="modal-header">
-              <h3>Manual Review & Correction</h3>
-              <button className="close-btn" onClick={() => setReviewingSubmission(null)}>✕</button>
+              <h3>
+                <span>✏️</span>
+                Manual Review & Correction
+              </h3>
+              <button className="close-btn" onClick={() => {
+                setReviewingSubmission(null);
+                setReviewError("");
+                setReviewSuccess("");
+              }}>✕</button>
             </div>
             
             <div className="modal-body">
               <div className="review-form">
+                {/* Student Info */}
+                <div className="student-info-modal">
+                  <div className="student-avatar-large">
+                    {reviewingSubmission.studentId?.name?.charAt(0) || 'S'}
+                  </div>
+                  <div>
+                    <h4>{reviewingSubmission.studentId?.name || 'Student'}</h4>
+                    <p>{reviewingSubmission.contentId?.mainTopic || 'Quiz'}</p>
+                    <p>Original Score: {reviewingSubmission.score}/{reviewingSubmission.total}</p>
+                  </div>
+                </div>
+
+                {/* Review Error/Success Messages */}
+                {reviewError && (
+                  <div className="error-banner">
+                    ❌ {reviewError}
+                  </div>
+                )}
+                
+                {reviewSuccess && (
+                  <div className="success-banner">
+                    ✅ {reviewSuccess}
+                  </div>
+                )}
+
                 <div className="form-group">
-                  <label>Score (0-{reviewingSubmission.total})</label>
+                  <label>Updated Score (0-{reviewingSubmission.total}) *</label>
                   <input
                     className="form-control"
                     type="number"
                     value={manualScore}
-                    onChange={(e) => setManualScore(parseInt(e.target.value) || 0)}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value);
+                      if (value >= 0 && value <= reviewingSubmission.total) {
+                        setManualScore(value);
+                      }
+                    }}
                     min="0"
                     max={reviewingSubmission.total}
+                    required
                   />
+                  <small className="password-hint">
+                    Current score: {reviewingSubmission.score}/{reviewingSubmission.total}
+                  </small>
                 </div>
 
                 <div className="form-group">
@@ -1361,22 +1887,35 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                     value={feedback}
                     onChange={(e) => setFeedback(e.target.value)}
                     rows={4}
-                    placeholder="Add comments, corrections, or encouragement..."
+                    placeholder="Add comments, corrections, or encouragement for the student..."
                   />
                 </div>
 
                 <div className="modal-actions">
-                  <button className="btn-secondary" onClick={() => setReviewingSubmission(null)}>
+                  <button 
+                    className="btn-secondary" 
+                    onClick={() => {
+                      setReviewingSubmission(null);
+                      setReviewError("");
+                      setReviewSuccess("");
+                    }}
+                    disabled={reviewLoading}
+                  >
                     Cancel
                   </button>
                   <button 
                     className="btn-primary"
-                    onClick={() => {
-                      alert("Manual review functionality coming soon!");
-                      setReviewingSubmission(null);
-                    }}
+                    onClick={handleManualReview}
+                    disabled={reviewLoading}
                   >
-                    Submit Review
+                    {reviewLoading ? (
+                      <>
+                        <span className="spinner" style={{ width: '16px', height: '16px', marginRight: '8px' }}></span>
+                        Submitting...
+                      </>
+                    ) : (
+                      reviewingSubmission.isManuallyReviewed ? 'Update Review' : 'Submit Review'
+                    )}
                   </button>
                 </div>
               </div>

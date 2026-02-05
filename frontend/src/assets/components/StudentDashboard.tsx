@@ -15,12 +15,15 @@ type Content = {
   mainTopic: string;
   subject: string;
   description: string;
+  contentType?: 'quiz' | 'notes'; // Add this
   questions: Array<{
     question: string;
     options: string[];
     answer: string;
   }>;
   definitions?: Array<{ word: string; meaning: string }>;
+  subTopics?: Array<{ title: string; content: string }>; // Add this for notes
+  grade?: string; // Add this
 };
 
 type Submission = {
@@ -46,6 +49,7 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
   const [answers, setAnswers] = useState<string[]>([]);
   const [showQuiz, setShowQuiz] = useState(false);
   const [showReview, setShowReview] = useState(false);
+  const [showNotes, setShowNotes] = useState(false); // Add this
   const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -62,6 +66,7 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
 
   useEffect(() => {
     if (submissions.length > 0 && content.length > 0) {
+      // Calculate average percentage score
       let totalPercentage = 0;
       submissions.forEach(sub => {
         const percentage = (sub.score / sub.total) * 100;
@@ -124,6 +129,15 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
     setAnswers(new Array(contentItem.questions.length).fill(""));
     setShowQuiz(true);
     setShowReview(false);
+    setShowNotes(false);
+  };
+
+  // Add this function for viewing notes
+  const viewNotes = (contentItem: Content) => {
+    setSelectedContent(contentItem);
+    setShowNotes(true);
+    setShowQuiz(false);
+    setShowReview(false);
   };
 
   const submitQuiz = async () => {
@@ -173,6 +187,7 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
     setSelectedSubmission(submission);
     setShowReview(true);
     setShowQuiz(false);
+    setShowNotes(false);
   };
 
   if (loading) {
@@ -222,10 +237,11 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
       <div className="dashboard-content">
         {error && <div className="error-banner">❌ {error}</div>}
 
-        {/* Progress Card */}
+        {/* Quick Stats */}
         <div className="content-section">
           <div className="content-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
             <div className="progress-card">
+              {/* Decorative elements */}
               <div className="decorative-circle decorative-circle-1"></div>
               <div className="decorative-circle decorative-circle-2"></div>
               
@@ -270,6 +286,7 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
                 </div>
               </div>
               
+              {/* Progress bar */}
               <div className="progress-container">
                 <div className="progress-info">
                   <span className="progress-label">
@@ -328,37 +345,49 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
                     <p className="card-description">{item.description}</p>
                     
                     <div className="card-stats">
-                      <span>📝 {item.questions.length} Questions</span>
-                      <span>📚 {item.definitions?.length || 0} Terms</span>
-                      <span>🔄 {attemptsLeft} Attempts Left</span>
-                      {bestScore > 0 && <span>🏆 Best: {bestScore}/{item.questions.length}</span>}
+                      {item.contentType === 'notes' ? (
+                        <>
+                          <span>📚 {item.definitions?.length || 0} Terms</span>
+                          <span>📖 {item.subTopics?.length || 0} Sections</span>
+                          <span>📝 Learning Notes</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>📝 {item.questions?.length || 0} Questions</span>
+                          <span>🔄 {attemptsLeft} Attempts Left</span>
+                          {bestScore > 0 && <span>🏆 Best: {bestScore}/{item.questions?.length || 0}</span>}
+                        </>
+                      )}
                     </div>
                     
                     <div className="card-actions">
-                      <button 
-                        className="primary-btn" 
-                        onClick={() => startQuiz(item)}
-                        disabled={attemptsLeft <= 0}
-                      >
-                        {attemptsLeft <= 0 ? (
-                          <>
-                            <span>❌</span>
-                            <span>No Attempts Left</span>
-                          </>
-                        ) : (
-                          <>
-                            <span>▶️</span>
-                            <span>Start Quiz</span>
-                          </>
-                        )}
-                      </button>
-                      <button 
-                        className="secondary-btn" 
-                        onClick={() => alert('📖 Study notes feature coming soon!')}
-                      >
-                        <span>📚</span>
-                        <span>View Notes</span>
-                      </button>
+                      {item.contentType === 'notes' ? (
+                        <button 
+                          className="primary-btn" 
+                          onClick={() => viewNotes(item)}
+                        >
+                          <span>📚</span>
+                          <span>View Notes</span>
+                        </button>
+                      ) : (
+                        <button 
+                          className="primary-btn" 
+                          onClick={() => startQuiz(item)}
+                          disabled={attemptsLeft <= 0}
+                        >
+                          {attemptsLeft <= 0 ? (
+                            <>
+                              <span>❌</span>
+                              <span>No Attempts Left</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>▶️</span>
+                              <span>Start Quiz</span>
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -385,7 +414,10 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
                 <button 
                   className="primary-btn" 
                   style={{ marginTop: '20px', padding: '14px 28px' }}
-                  onClick={() => content.length > 0 && startQuiz(content[0])}
+                  onClick={() => {
+                    const firstQuiz = content.find(item => item.contentType !== 'notes');
+                    if (firstQuiz) startQuiz(firstQuiz);
+                  }}
                 >
                   🚀 Start Your First Quiz
                 </button>
@@ -556,7 +588,7 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
               {selectedSubmission.isManuallyReviewed && selectedSubmission.adminFeedback && (
                 <div className="admin-feedback">
                   <strong>💬 Teacher's Feedback:</strong>
-                  <p>{selectedSubmission.adminFeedback}</p>
+                  <p style={{ marginTop: '8px' }}>{selectedSubmission.adminFeedback}</p>
                 </div>
               )}
             </div>
@@ -604,24 +636,103 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
         </div>
       )}
 
+      {/* Notes View Modal */}
+      {showNotes && selectedContent && (
+        <div className="quiz-modal">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h3>
+                <span>📚</span>
+                {selectedContent.mainTopic} - Learning Notes
+              </h3>
+              <button className="close-btn" onClick={() => setShowNotes(false)}>✕</button>
+            </div>
+
+            <div className="modal-body notes-view">
+              <div className="notes-view-header">
+                <h4>{selectedContent.mainTopic}</h4>
+                <p className="notes-view-description">{selectedContent.description}</p>
+                <div className="notes-view-meta">
+                  <span>📚 {selectedContent.subject}</span>
+                  <span>🎯 Grade: {selectedContent.grade || user.grade}</span>
+                </div>
+              </div>
+              
+              {selectedContent.definitions && selectedContent.definitions.length > 0 && (
+                <div className="notes-section">
+                  <h5>
+                    <span>📖</span>
+                    Key Terms & Definitions
+                  </h5>
+                  <div className="definitions-list">
+                    {selectedContent.definitions.map((def, index) => (
+                      <div key={index} className="definition-item">
+                        <div className="definition-word">{def.word}</div>
+                        <div className="definition-meaning">{def.meaning}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {selectedContent.subTopics && selectedContent.subTopics.length > 0 && (
+                <div className="notes-section">
+                  <h5>
+                    <span>📚</span>
+                    Learning Content
+                  </h5>
+                  <div className="subtopics-list">
+                    {selectedContent.subTopics.map((sub, index) => (
+                      <div key={index} className="subtopic-item">
+                        <h6>{sub.title}</h6>
+                        <p>{sub.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="modal-footer">
+                <button 
+                  className="primary-btn" 
+                  onClick={() => setShowNotes(false)}
+                  style={{ 
+                    minWidth: '200px',
+                    padding: '12px 24px'
+                  }}
+                >
+                  <span>←</span>
+                  <span>Back to Dashboard</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Floating Action Button */}
-      {content.length > 0 && !showQuiz && !showReview && (
+      {content.length > 0 && !showQuiz && !showReview && !showNotes && (
         <button 
           className="floating-btn"
           onClick={() => {
             const firstAvailable = content.find(item => {
+              if (item.contentType === 'notes') return true;
               const attempts = submissions.filter(s => s.contentId?._id === item._id).length;
               return attempts < user.maxAttempts;
             });
             if (firstAvailable) {
-              startQuiz(firstAvailable);
+              if (firstAvailable.contentType === 'notes') {
+                viewNotes(firstAvailable);
+              } else {
+                startQuiz(firstAvailable);
+              }
             } else {
-              alert('🎯 You have completed all available quizzes!');
+              alert('🎯 You have completed all available quizzes! Check out the learning notes.');
             }
           }}
-          title="Start a Quiz"
+          title="Start Learning"
         >
-          ▶️
+          📚
         </button>
       )}
     </div>

@@ -15,15 +15,15 @@ type Content = {
   mainTopic: string;
   subject: string;
   description: string;
-  contentType?: 'quiz' | 'notes'; // Add this
+  contentType?: 'quiz' | 'notes';
   questions: Array<{
     question: string;
     options: string[];
     answer: string;
   }>;
   definitions?: Array<{ word: string; meaning: string }>;
-  subTopics?: Array<{ title: string; content: string }>; // Add this for notes
-  grade?: string; // Add this
+  subTopics?: Array<{ title: string; content: string }>;
+  grade?: string;
 };
 
 type Submission = {
@@ -49,7 +49,7 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
   const [answers, setAnswers] = useState<string[]>([]);
   const [showQuiz, setShowQuiz] = useState(false);
   const [showReview, setShowReview] = useState(false);
-  const [showNotes, setShowNotes] = useState(false); // Add this
+  const [showNotes, setShowNotes] = useState(false);
   const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -130,14 +130,16 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
     setShowQuiz(true);
     setShowReview(false);
     setShowNotes(false);
+    setSelectedSubmission(null);
   };
 
-  // Add this function for viewing notes
   const viewNotes = (contentItem: Content) => {
     setSelectedContent(contentItem);
     setShowNotes(true);
     setShowQuiz(false);
     setShowReview(false);
+    setSelectedSubmission(null);
+    setAnswers([]);
   };
 
   const submitQuiz = async () => {
@@ -188,6 +190,7 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
     setShowReview(true);
     setShowQuiz(false);
     setShowNotes(false);
+    setSelectedContent(null);
   };
 
   if (loading) {
@@ -241,7 +244,6 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
         <div className="content-section">
           <div className="content-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
             <div className="progress-card">
-              {/* Decorative elements */}
               <div className="decorative-circle decorative-circle-1"></div>
               <div className="decorative-circle decorative-circle-2"></div>
               
@@ -347,9 +349,9 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
                     <div className="card-stats">
                       {item.contentType === 'notes' ? (
                         <>
-                          <span>📚 {item.definitions?.length || 0} Terms</span>
-                          <span>📖 {item.subTopics?.length || 0} Sections</span>
-                          <span>📝 Learning Notes</span>
+                          <span className="notes-stats-item">📖 {item.subTopics?.length || 0} Sections</span>
+                          <span className="notes-stats-item">📚 {item.definitions?.length || 0} Terms</span>
+                          <span className="notes-stats-item">📝 Learning Material</span>
                         </>
                       ) : (
                         <>
@@ -638,68 +640,103 @@ export default function StudentDashboard({ user, onLogout }: { user: User; onLog
 
       {/* Notes View Modal */}
       {showNotes && selectedContent && (
-        <div className="quiz-modal">
+        <div className="quiz-modal notes-modal">
           <div className="modal-content">
             <div className="modal-header">
-              <h3>
-                <span>📚</span>
-                {selectedContent.mainTopic} - Learning Notes
-              </h3>
+              <div className="modal-title-group">
+                <span className="modal-icon">📚</span>
+                <div>
+                  <h3>{selectedContent.mainTopic} - Learning Notes</h3>
+                  <p className="modal-subtitle">{selectedContent.subject} • Grade {selectedContent.grade || user.grade}</p>
+                </div>
+              </div>
               <button className="close-btn" onClick={() => setShowNotes(false)}>✕</button>
             </div>
 
             <div className="modal-body notes-view">
-              <div className="notes-view-header">
-                <h4>{selectedContent.mainTopic}</h4>
-                <p className="notes-view-description">{selectedContent.description}</p>
-                <div className="notes-view-meta">
-                  <span>📚 {selectedContent.subject}</span>
-                  <span>🎯 Grade: {selectedContent.grade || user.grade}</span>
-                </div>
+              {/* Description section */}
+              <div className="notes-description-section">
+                <h4>📌 Overview</h4>
+                <p>{selectedContent.description}</p>
               </div>
-              
+
+              {/* Key Terms Section - Only show if definitions exist */}
               {selectedContent.definitions && selectedContent.definitions.length > 0 && (
-                <div className="notes-section">
-                  <h5>
-                    <span>📖</span>
-                    Key Terms & Definitions
-                  </h5>
-                  <div className="definitions-list">
-                    {selectedContent.definitions.map((def, index) => (
-                      <div key={index} className="definition-item">
-                        <div className="definition-word">{def.word}</div>
-                        <div className="definition-meaning">{def.meaning}</div>
-                      </div>
-                    ))}
+                <div className="notes-section key-terms-section">
+                  <div className="section-header">
+                    <h5>
+                      <span className="section-icon">📖</span>
+                      Key Terms & Definitions
+                      <span className="badge">{selectedContent.definitions.length}</span>
+                    </h5>
                   </div>
-                </div>
-              )}
-              
-              {selectedContent.subTopics && selectedContent.subTopics.length > 0 && (
-                <div className="notes-section">
-                  <h5>
-                    <span>📚</span>
-                    Learning Content
-                  </h5>
-                  <div className="subtopics-list">
-                    {selectedContent.subTopics.map((sub, index) => (
-                      <div key={index} className="subtopic-item">
-                        <h6>{sub.title}</h6>
-                        <p>{sub.content}</p>
+                  <div className="definitions-grid">
+                    {selectedContent.definitions.map((def, index) => (
+                      <div key={index} className="definition-card">
+                        <div className="definition-header">
+                          <span className="term-index">#{index + 1}</span>
+                          <span className="term-word">{def.word}</span>
+                        </div>
+                        <div className="definition-content">
+                          <p>{def.meaning}</p>
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
+              {/* Learning Content Section - Only show if subtopics exist */}
+              {selectedContent.subTopics && selectedContent.subTopics.length > 0 && (
+                <div className="notes-section learning-content-section">
+                  <div className="section-header">
+                    <h5>
+                      <span className="section-icon">📚</span>
+                      Learning Content
+                      <span className="badge">{selectedContent.subTopics.length} sections</span>
+                    </h5>
+                  </div>
+                  <div className="subtopics-container">
+                    {selectedContent.subTopics.map((sub, index) => (
+                      <div key={index} className="subtopic-card">
+                        <div className="subtopic-header">
+                          <div className="subtopic-number">Section {index + 1}</div>
+                          <h6>{sub.title}</h6>
+                        </div>
+                        <div className="subtopic-content">
+                          <p>{sub.content}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Empty state if no content */}
+              {(!selectedContent.definitions || selectedContent.definitions.length === 0) &&
+               (!selectedContent.subTopics || selectedContent.subTopics.length === 0) && (
+                <div className="empty-notes-state">
+                  <div className="empty-icon">📄</div>
+                  <h4>No detailed content available</h4>
+                  <p>This notes section contains only the topic overview.</p>
+                </div>
+              )}
+
+              {/* Footer */}
               <div className="modal-footer">
+                <button 
+                  className="secondary-btn"
+                  onClick={() => {
+                    // Option to print/download notes
+                    window.print();
+                  }}
+                >
+                  <span>🖨️</span>
+                  <span>Print Notes</span>
+                </button>
                 <button 
                   className="primary-btn" 
                   onClick={() => setShowNotes(false)}
-                  style={{ 
-                    minWidth: '200px',
-                    padding: '12px 24px'
-                  }}
                 >
                   <span>←</span>
                   <span>Back to Dashboard</span>

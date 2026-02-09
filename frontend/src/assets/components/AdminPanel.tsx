@@ -155,8 +155,10 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
   // New states for viewing notes, editing quizzes, and preview
   const [viewingNotes, setViewingNotes] = useState<Content | null>(null);
   const [editingQuiz, setEditingQuiz] = useState<Content | null>(null);
+  const [editingNotes, setEditingNotes] = useState<Content | null>(null);
   const [previewContent, setPreviewContent] = useState<Content | null>(null);
   const [editQuizForm, setEditQuizForm] = useState<QuizFormData | null>(null);
+  const [editNotesForm, setEditNotesForm] = useState<NotesFormData | null>(null);
 
   // Manual review states
   const [reviewLoading, setReviewLoading] = useState(false);
@@ -321,19 +323,25 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
     setLoading(true);
 
     try {
-      const res = await fetch("http://localhost:4000/api/content", {
-        method: "POST",
+      const endpoint = editingNotes 
+        ? `http://localhost:4000/api/admin/content/${editingNotes._id}`
+        : "http://localhost:4000/api/content";
+      
+      const method = editingNotes ? "PUT" : "POST";
+      
+      const res = await fetch(endpoint, {
+        method: method,
         headers: {
           "Content-Type": "application/json",
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(notesForm),
+        body: JSON.stringify(editingNotes ? editNotesForm : notesForm),
       });
 
       const data = await res.json();
       
       if (res.ok && data.success) {
-        setContentSuccess("✅ Learning notes created successfully!");
+        setContentSuccess(editingNotes ? "✅ Learning notes updated successfully!" : "✅ Learning notes created successfully!");
         // Reset form
         setNotesForm({
           grade: "Grade 4",
@@ -345,10 +353,12 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
           subTopics: [{ title: "", content: "" }]
         });
         setShowNotesForm(false);
+        setEditingNotes(null);
+        setEditNotesForm(null);
         // Refresh content list
         loadData();
       } else {
-        setContentError(data.error || data.message || "Failed to create notes");
+        setContentError(data.error || data.message || `Failed to ${editingNotes ? 'update' : 'create'} notes`);
       }
     } catch (error) {
       setContentError("Network error. Please try again.");
@@ -508,29 +518,55 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
 
   // Helper functions for notes form
   const addDefinition = () => {
-    setNotesForm({
-      ...notesForm,
-      definitions: [...notesForm.definitions, { word: "", meaning: "" }]
-    });
+    if (editingNotes && editNotesForm) {
+      setEditNotesForm({
+        ...editNotesForm,
+        definitions: [...editNotesForm.definitions, { word: "", meaning: "" }]
+      });
+    } else {
+      setNotesForm({
+        ...notesForm,
+        definitions: [...notesForm.definitions, { word: "", meaning: "" }]
+      });
+    }
   };
 
   const removeDefinition = (index: number) => {
-    const newDefinitions = [...notesForm.definitions];
-    newDefinitions.splice(index, 1);
-    setNotesForm({ ...notesForm, definitions: newDefinitions });
+    if (editingNotes && editNotesForm) {
+      const newDefinitions = [...editNotesForm.definitions];
+      newDefinitions.splice(index, 1);
+      setEditNotesForm({ ...editNotesForm, definitions: newDefinitions });
+    } else {
+      const newDefinitions = [...notesForm.definitions];
+      newDefinitions.splice(index, 1);
+      setNotesForm({ ...notesForm, definitions: newDefinitions });
+    }
   };
 
   const addSubTopic = () => {
-    setNotesForm({
-      ...notesForm,
-      subTopics: [...notesForm.subTopics, { title: "", content: "" }]
-    });
+    if (editingNotes && editNotesForm) {
+      setEditNotesForm({
+        ...editNotesForm,
+        subTopics: [...editNotesForm.subTopics, { title: "", content: "" }]
+      });
+    } else {
+      setNotesForm({
+        ...notesForm,
+        subTopics: [...notesForm.subTopics, { title: "", content: "" }]
+      });
+    }
   };
 
   const removeSubTopic = (index: number) => {
-    const newSubTopics = [...notesForm.subTopics];
-    newSubTopics.splice(index, 1);
-    setNotesForm({ ...notesForm, subTopics: newSubTopics });
+    if (editingNotes && editNotesForm) {
+      const newSubTopics = [...editNotesForm.subTopics];
+      newSubTopics.splice(index, 1);
+      setEditNotesForm({ ...editNotesForm, subTopics: newSubTopics });
+    } else {
+      const newSubTopics = [...notesForm.subTopics];
+      newSubTopics.splice(index, 1);
+      setNotesForm({ ...notesForm, subTopics: newSubTopics });
+    }
   };
 
   const resetAttempts = async (userId: string) => {
@@ -633,6 +669,27 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
       }))
     });
     setShowQuizForm(true);
+  };
+
+  // Edit notes function
+  const handleEditNotes = (notes: Content) => {
+    setEditingNotes(notes);
+    setEditNotesForm({
+      grade: notes.grade,
+      subject: notes.subject,
+      mainTopic: notes.mainTopic,
+      description: notes.description,
+      contentType: 'notes',
+      definitions: notes.definitions.map(d => ({
+        word: d.word,
+        meaning: d.meaning
+      })),
+      subTopics: notes.subTopics.map(s => ({
+        title: s.title,
+        content: s.content
+      }))
+    });
+    setShowNotesForm(true);
   };
 
   // Filter content by type
@@ -882,7 +939,11 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                   
                   <button 
                     className="btn btn-success"
-                    onClick={() => setShowNotesForm(true)}
+                    onClick={() => {
+                      setShowNotesForm(true);
+                      setEditingNotes(null);
+                      setEditNotesForm(null);
+                    }}
                   >
                     <span>📚</span>
                     <span>Create Learning Notes</span>
@@ -984,6 +1045,9 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                           <>
                             <button className="btn-outline" onClick={() => setViewingNotes(item)}>
                               View Notes
+                            </button>
+                            <button className="btn-outline" onClick={() => handleEditNotes(item)}>
+                              Edit Notes
                             </button>
                             <button className="btn-outline" onClick={() => setPreviewContent(item)}>
                               Preview
@@ -1342,12 +1406,16 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
       )}
       
       {/* Notes Form Modal */}
-      {showNotesForm && (
+      {(showNotesForm || editingNotes) && (
         <div className="modal-overlay">
           <div className="modal">
             <div className="modal-header">
-              <h3>📚 Create Learning Notes</h3>
-              <button className="close-btn" onClick={() => setShowNotesForm(false)}>✕</button>
+              <h3>{editingNotes ? '📚 Edit Learning Notes' : '📚 Create Learning Notes'}</h3>
+              <button className="close-btn" onClick={() => {
+                setShowNotesForm(false);
+                setEditingNotes(null);
+                setEditNotesForm(null);
+              }}>✕</button>
             </div>
             
             <div className="modal-body">
@@ -1357,8 +1425,14 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                     <label>Grade Level *</label>
                     <select
                       className="form-control"
-                      value={notesForm.grade}
-                      onChange={(e) => setNotesForm({...notesForm, grade: e.target.value})}
+                      value={editingNotes ? editNotesForm?.grade || "Grade 4" : notesForm.grade}
+                      onChange={(e) => {
+                        if (editingNotes && editNotesForm) {
+                          setEditNotesForm({...editNotesForm, grade: e.target.value});
+                        } else {
+                          setNotesForm({...notesForm, grade: e.target.value});
+                        }
+                      }}
                       required
                     >
                       <option value="Grade 4">Grade 4</option>
@@ -1375,8 +1449,14 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                     <label>Subject *</label>
                     <select
                       className="form-control"
-                      value={notesForm.subject}
-                      onChange={(e) => setNotesForm({...notesForm, subject: e.target.value})}
+                      value={editingNotes ? editNotesForm?.subject || "English" : notesForm.subject}
+                      onChange={(e) => {
+                        if (editingNotes && editNotesForm) {
+                          setEditNotesForm({...editNotesForm, subject: e.target.value});
+                        } else {
+                          setNotesForm({...notesForm, subject: e.target.value});
+                        }
+                      }}
                       required
                     >
                       <option value="English">English</option>
@@ -1396,8 +1476,14 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                   <input
                     className="form-control"
                     type="text"
-                    value={notesForm.mainTopic}
-                    onChange={(e) => setNotesForm({...notesForm, mainTopic: e.target.value})}
+                    value={editingNotes ? editNotesForm?.mainTopic || "" : notesForm.mainTopic}
+                    onChange={(e) => {
+                      if (editingNotes && editNotesForm) {
+                        setEditNotesForm({...editNotesForm, mainTopic: e.target.value});
+                      } else {
+                        setNotesForm({...notesForm, mainTopic: e.target.value});
+                      }
+                    }}
                     placeholder="e.g., Introduction to Fractions, Basic Grammar Rules"
                     required
                   />
@@ -1407,8 +1493,14 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                   <label>Description *</label>
                   <textarea
                     className="form-control textarea-control"
-                    value={notesForm.description}
-                    onChange={(e) => setNotesForm({...notesForm, description: e.target.value})}
+                    value={editingNotes ? editNotesForm?.description || "" : notesForm.description}
+                    onChange={(e) => {
+                      if (editingNotes && editNotesForm) {
+                        setEditNotesForm({...editNotesForm, description: e.target.value});
+                      } else {
+                        setNotesForm({...notesForm, description: e.target.value});
+                      }
+                    }}
                     placeholder="Brief description of what this learning material covers"
                     rows={3}
                     required
@@ -1417,22 +1509,30 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                 
                 {/* Definitions Section */}
                 <div className="section-header">
-                  <h4>Key Terms & Definitions <span className="section-badge">{notesForm.definitions.length}</span></h4>
+                  <h4>Key Terms & Definitions <span className="section-badge">
+                    {editingNotes ? editNotesForm?.definitions.length || 0 : notesForm.definitions.length}
+                  </span></h4>
                   <button type="button" className="btn-secondary" onClick={addDefinition}>
                     + Add Term
                   </button>
                 </div>
                 
-                {notesForm.definitions.map((def, dIndex) => (
+                {(editingNotes ? editNotesForm?.definitions || [] : notesForm.definitions).map((def, dIndex) => (
                   <div key={dIndex} className="definition-row">
                     <input
                       className="form-control"
                       type="text"
                       value={def.word}
                       onChange={(e) => {
-                        const newDefs = [...notesForm.definitions];
-                        newDefs[dIndex].word = e.target.value;
-                        setNotesForm({...notesForm, definitions: newDefs});
+                        if (editingNotes && editNotesForm) {
+                          const newDefs = [...editNotesForm.definitions];
+                          newDefs[dIndex].word = e.target.value;
+                          setEditNotesForm({...editNotesForm, definitions: newDefs});
+                        } else {
+                          const newDefs = [...notesForm.definitions];
+                          newDefs[dIndex].word = e.target.value;
+                          setNotesForm({...notesForm, definitions: newDefs});
+                        }
                       }}
                       placeholder="Term"
                     />
@@ -1441,9 +1541,15 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                       type="text"
                       value={def.meaning}
                       onChange={(e) => {
-                        const newDefs = [...notesForm.definitions];
-                        newDefs[dIndex].meaning = e.target.value;
-                        setNotesForm({...notesForm, definitions: newDefs});
+                        if (editingNotes && editNotesForm) {
+                          const newDefs = [...editNotesForm.definitions];
+                          newDefs[dIndex].meaning = e.target.value;
+                          setEditNotesForm({...editNotesForm, definitions: newDefs});
+                        } else {
+                          const newDefs = [...notesForm.definitions];
+                          newDefs[dIndex].meaning = e.target.value;
+                          setNotesForm({...notesForm, definitions: newDefs});
+                        }
                       }}
                       placeholder="Definition"
                     />
@@ -1459,13 +1565,15 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                 
                 {/* Subtopics Section */}
                 <div className="section-header">
-                  <h4>Learning Subtopics <span className="section-badge">{notesForm.subTopics.length}</span></h4>
+                  <h4>Learning Subtopics <span className="section-badge">
+                    {editingNotes ? editNotesForm?.subTopics.length || 0 : notesForm.subTopics.length}
+                  </span></h4>
                   <button type="button" className="btn-secondary" onClick={addSubTopic}>
                     + Add Subtopic
                   </button>
                 </div>
                 
-                {notesForm.subTopics.map((sub, sIndex) => (
+                {(editingNotes ? editNotesForm?.subTopics || [] : notesForm.subTopics).map((sub, sIndex) => (
                   <div key={sIndex} className="subtopic-card">
                     <div className="subtopic-header">
                       <h5>Subtopic {sIndex + 1}</h5>
@@ -1484,9 +1592,15 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                         type="text"
                         value={sub.title}
                         onChange={(e) => {
-                          const newSubs = [...notesForm.subTopics];
-                          newSubs[sIndex].title = e.target.value;
-                          setNotesForm({...notesForm, subTopics: newSubs});
+                          if (editingNotes && editNotesForm) {
+                            const newSubs = [...editNotesForm.subTopics];
+                            newSubs[sIndex].title = e.target.value;
+                            setEditNotesForm({...editNotesForm, subTopics: newSubs});
+                          } else {
+                            const newSubs = [...notesForm.subTopics];
+                            newSubs[sIndex].title = e.target.value;
+                            setNotesForm({...notesForm, subTopics: newSubs});
+                          }
                         }}
                         placeholder="Subtopic title"
                       />
@@ -1497,9 +1611,15 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                         className="form-control textarea-control"
                         value={sub.content}
                         onChange={(e) => {
-                          const newSubs = [...notesForm.subTopics];
-                          newSubs[sIndex].content = e.target.value;
-                          setNotesForm({...notesForm, subTopics: newSubs});
+                          if (editingNotes && editNotesForm) {
+                            const newSubs = [...editNotesForm.subTopics];
+                            newSubs[sIndex].content = e.target.value;
+                            setEditNotesForm({...editNotesForm, subTopics: newSubs});
+                          } else {
+                            const newSubs = [...notesForm.subTopics];
+                            newSubs[sIndex].content = e.target.value;
+                            setNotesForm({...notesForm, subTopics: newSubs});
+                          }
                         }}
                         placeholder="Learning content for this subtopic"
                         rows={3}
@@ -1509,11 +1629,15 @@ export default function AdminPanel({ user, onLogout }: { user: User; onLogout: (
                 ))}
                 
                 <div className="modal-actions">
-                  <button type="button" className="btn-secondary" onClick={() => setShowNotesForm(false)}>
+                  <button type="button" className="btn-secondary" onClick={() => {
+                    setShowNotesForm(false);
+                    setEditingNotes(null);
+                    setEditNotesForm(null);
+                  }}>
                     Cancel
                   </button>
                   <button type="submit" className="btn btn-success" disabled={loading}>
-                    {loading ? "Creating..." : "Create Learning Notes"}
+                    {loading ? (editingNotes ? "Updating..." : "Creating...") : (editingNotes ? "Update Learning Notes" : "Create Learning Notes")}
                   </button>
                 </div>
               </form>
